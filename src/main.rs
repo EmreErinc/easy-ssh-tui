@@ -2,7 +2,7 @@ pub mod app;
 pub mod ssh;
 pub mod ui;
 
-use app::App;
+use app::{App, InputMode};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -50,6 +50,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// ... existing code ...
+
 fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
@@ -61,12 +63,23 @@ where
         terminal.draw(|f| ui::ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Down | KeyCode::Char('j') => app.next(),
-                KeyCode::Up | KeyCode::Char('k') => app.previous(),
-                KeyCode::Char('c') => app.copy_public_key(),
-                _ => {}
+            match app.input_mode {
+                InputMode::Normal => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Down | KeyCode::Char('j') => app.next(),
+                    KeyCode::Up | KeyCode::Char('k') => app.previous(),
+                    KeyCode::Char('c') => app.copy_public_key(),
+                    KeyCode::Char('n') => app.start_creation(),
+                    _ => {}
+                },
+                InputMode::Editing => match key.code {
+                    KeyCode::Enter => app.confirm_creation(),
+                    KeyCode::Char(c) => app.handle_input(c),
+                    KeyCode::Backspace => app.handle_backspace(),
+                    KeyCode::Esc => app.cancel_creation(),
+                    KeyCode::Tab => app.switch_field(),
+                    _ => {}
+                },
             }
         }
     }

@@ -1,5 +1,37 @@
 use std::fs;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+
+pub fn create_ssh_key(name: &str, email: &str) -> std::io::Result<()> {
+    let mut ssh_dir = dirs::home_dir().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Home directory not found"))?;
+    ssh_dir.push(".ssh");
+    
+    let key_path = ssh_dir.join(name);
+    let key_path_str = key_path.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid path"))?;
+
+    // 1. Run ssh-keygen
+    let status = Command::new("ssh-keygen")
+        .args(["-t", "ed25519", "-C", email, "-f", key_path_str, "-N", ""])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+
+    if !status.success() {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "ssh-keygen failed"));
+    }
+
+    // 2. Try to run ssh-add
+    // Note: This might fail if the ssh-agent is not running in the current context, 
+    // but we generally just ignore the failure and let the user add it themselves if needed,
+    // or we can just run it and not strictly error out if it fails.
+    let _ = Command::new("ssh-add")
+        .arg(key_path_str)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    Ok(())
+}
 
 pub struct SshKey {
     pub name: String,
