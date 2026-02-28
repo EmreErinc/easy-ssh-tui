@@ -1,0 +1,18 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [0.1.0] - 2026-02-28
+
+### Added
+- **Interactive TUI**: A fast, responsive terminal user interface built with Ratatui and Crossterm.
+- **SSH Key Viewer**: Automatically discovers and lists existing SSH keys from the `~/.ssh` directory.
+- **Key Inspection**: Displays the contents of both private and public keys for the currently selected key.
+- **Clipboard Support**: Copy public keys directly to your system clipboard with the <kbd>c</kbd> keybinding.
+- **SSH Key Generation**: Create new `ed25519` SSH keys directly from the UI by pressing <kbd>n</kbd>.
+- **PEM File Importer**: Select and securely import existing `.pem` files from your filesystem by pressing <kbd>i</kbd>.
+  - Features file browser navigation.
+  - Supports both **Move (m)** and **Copy (c)** operations.
+  - Automatically handles `chmod 600` permissions.
+  - Seamlessly prompts for passphrases for encrypted keys and injects them into `ssh-add` using a temporary `SSH_ASKPASS` script.
+- **Release Script**: Added `release.sh` to easily compile the release build and install the application globally via `cargo`.
