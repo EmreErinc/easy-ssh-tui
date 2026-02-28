@@ -1,5 +1,5 @@
 [package]
-name = "easy-ssh"
+name = "easy-ssh-tui"
 version = "0.1.0"
 edition = "2024"
 description = "A fast, responsive terminal application built with Ratatui to easily manage and view your SSH keys."
