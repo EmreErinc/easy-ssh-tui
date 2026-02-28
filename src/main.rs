@@ -70,6 +70,7 @@ where
                     KeyCode::Up | KeyCode::Char('k') => app.previous(),
                     KeyCode::Char('c') => app.copy_public_key(),
                     KeyCode::Char('n') => app.start_creation(),
+                    KeyCode::Char('i') => app.start_file_browser(),
                     _ => {}
                 },
                 InputMode::Editing => match key.code {
@@ -80,6 +81,27 @@ where
                     KeyCode::Tab => app.switch_field(),
                     _ => {}
                 },
+                InputMode::FileBrowser => match key.code {
+                    KeyCode::Down | KeyCode::Char('j') => app.fb_next(),
+                    KeyCode::Up | KeyCode::Char('k') => app.fb_previous(),
+                    KeyCode::Enter => app.fb_select(),
+                    KeyCode::Left | KeyCode::Backspace => app.fb_parent(),
+                    KeyCode::Esc | KeyCode::Char('q') => app.cancel_import(),
+                    _ => {}
+                },
+                InputMode::ImportAction => match key.code {
+                    KeyCode::Char('m') => app.handle_import_action('m'),
+                    KeyCode::Char('c') => app.handle_import_action('c'),
+                    KeyCode::Esc | KeyCode::Char('q') => app.cancel_import(),
+                    _ => {}
+                },
+                InputMode::PasswordPrompt => match key.code {
+                    KeyCode::Enter => app.submit_password(),
+                    KeyCode::Char(c) => app.handle_password_input(c),
+                    KeyCode::Backspace => app.handle_password_backspace(),
+                    KeyCode::Esc => app.cancel_import(),
+                    _ => {}
+                }
             }
         }
     }

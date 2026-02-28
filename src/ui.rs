@@ -27,8 +27,12 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     render_keys_list(f, app, chunks[1]);
     render_key_details(f, app, chunks[2]);
 
-    if app.input_mode == InputMode::Editing {
-        render_input_popup(f, app);
+    match app.input_mode {
+        InputMode::Editing => render_input_popup(f, app),
+        InputMode::FileBrowser => render_file_browser(f, app),
+        InputMode::ImportAction => render_action_popup(f, app),
+        InputMode::PasswordPrompt => render_password_popup(f, app),
+        InputMode::Normal => {}
     }
 }
 
@@ -126,6 +130,40 @@ fn render_input_popup(f: &mut Frame, app: &App) {
     }
 }
 
+fn render_file_browser(f: &mut Frame, app: &mut App) {
+    let area = centered_rect(80, 80, f.area());
+    f.render_widget(Clear, area);
+
+    let items: Vec<ListItem> = app
+        .file_entries
+        .iter()
+        .map(|p| {
+            let mut name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            if p.is_dir() {
+                name.push('/');
+                ListItem::new(Line::from(vec![Span::styled(
+                    name,
+                    Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD),
+                )]))
+            } else {
+                ListItem::new(Line::from(vec![Span::raw(name)]))
+            }
+        })
+        .collect();
+
+    let title = format!(" Browser: {} ", app.current_dir.display());
+    let items_list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(">> ");
+
+    f.render_stateful_widget(items_list, area, &mut app.file_list_state);
+}
+
 fn render_header(f: &mut Frame, app: &App, area: Rect) {
     let msg = if let Some((msg, _)) = &app.clipboard_msg {
         Line::from(vec![Span::styled(
@@ -141,6 +179,8 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
             Span::raw(" to navigate | "),
             Span::styled("n", Style::default().fg(Color::Yellow)),
             Span::raw(" to start creation | "),
+            Span::styled("i", Style::default().fg(Color::Yellow)),
+            Span::raw(" to import | "),
             Span::styled("c", Style::default().fg(Color::Yellow)),
             Span::raw(" to copy public key | "),
             Span::styled("q", Style::default().fg(Color::Yellow)),
@@ -212,4 +252,83 @@ fn render_key_details(f: &mut Frame, app: &App, area: Rect) {
             .alignment(ratatui::layout::Alignment::Center);
         f.render_widget(empty_p, area);
     }
+}
+
+fn render_action_popup(f: &mut Frame, _app: &App) {
+    let area = centered_rect(40, 20, f.area());
+    f.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title(" Import Action ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black));
+    
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([Constraint::Length(1), Constraint::Length(2)])
+        .split(inner_area);
+
+    let question = Paragraph::new(Line::from(vec![
+        Span::raw("Do you want to "),
+        Span::styled("Move", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" or "),
+        Span::styled("Copy", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" this file?"),
+    ])).alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(question, chunks[0]);
+
+    let options = Paragraph::new("Press [m] for Move, [c] for Copy")
+        .style(Style::default().fg(Color::Gray))
+        .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(options, chunks[1]);
+}
+
+fn render_password_popup(f: &mut Frame, app: &App) {
+    let area = centered_rect(50, 20, f.area());
+    f.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title(" Encrypted Key ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black));
+    
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(2), // Intro
+            Constraint::Length(3), // Input
+            Constraint::Length(2), // Error
+        ])
+        .split(inner_area);
+
+    let intro = Paragraph::new("This key requires a passphrase:")
+        .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(intro, chunks[0]);
+
+    // Mask password
+    let masked: String = app.password_input.chars().map(|_| '*').collect();
+    let input_text = format!("> {}", masked);
+    
+    let input_widget = Paragraph::new(input_text)
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .block(Block::default().borders(Borders::ALL).title("Passphrase"));
+    f.render_widget(input_widget, chunks[1]);
+
+    if let Some(msg) = &app.popup_msg {
+        let err_widget = Paragraph::new(msg.as_str())
+            .style(Style::default().fg(Color::Red))
+            .alignment(ratatui::layout::Alignment::Center);
+        f.render_widget(err_widget, chunks[2]);
+    }
+
+    // Set cursor
+    f.set_cursor_position((chunks[1].x + app.password_input.len() as u16 + 2, chunks[1].y + 1));
 }
