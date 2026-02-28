@@ -13,13 +13,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: easy-ssh-linux-x86_64
+            artifact_name: easy-ssh-tui-linux-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: easy-ssh-macos-x86_64
+            artifact_name: easy-ssh-tui-macos-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: easy-ssh-macos-arm64
+            artifact_name: easy-ssh-tui-macos-arm64
 
     steps:
       - name: Checkout code
@@ -39,6 +39,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: target/${{ matrix.target }}/release/easy-ssh
+          asset_path: target/${{ matrix.target }}/release/easy-ssh-tui
           asset_name: ${{ matrix.artifact_name }}
           asset_content_type: application/octet-stream

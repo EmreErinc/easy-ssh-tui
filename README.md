@@ -1,4 +1,4 @@
-# easy-ssh
+# easy-ssh-tui
 
 A simple, fast terminal application built with Rust and [Ratatui](https://github.com/ratatui-org/ratatui) to easily manage and view your SSH keys.
 
@@ -24,8 +24,8 @@ Please see the [CHANGELOG.md](CHANGELOG.md) for the latest release notes and his
 Clone the repository and build the project using Cargo:
 
 ```bash
-git clone https://github.com/yourusername/easy-ssh.git
-cd easy-ssh
+git clone https://github.com/yourusername/easy-ssh-tui.git
+cd easy-ssh-tui
 ```
 
 If you just want to install and use it immediately, you can run the provided release script (Mac/Linux):
