@@ -2,6 +2,11 @@
 name = "easy-ssh"
 version = "0.1.0"
 edition = "2024"
+description = "A fast, responsive terminal application built with Ratatui to easily manage and view your SSH keys."
+repository = "https://github.com/yourusername/easy-ssh"
+license = "MIT"
+keywords = ["ssh", "ratatui", "tui", "cli"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 arboard = "3.6.1"
