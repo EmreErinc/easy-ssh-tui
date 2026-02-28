@@ -7,7 +7,12 @@ A simple, fast terminal application built with Rust and [Ratatui](https://github
 - **View SSH Keys:** Displays a list of your SSH keys found in the `~/.ssh` directory.
 - **Key Details:** Automatically shows the associated public and private key contents for the selected SSH key.
 - **Copy Public Key:** Quickly copy the selected public key to your clipboard with a single keystroke.
+- **SSH Key Generation:** Create new `ed25519` SSH keys directly from the UI.
+- **PEM File Importer:** Securely import existing `.pem` files from your filesystem with automatic permission handling (`chmod 600`) and passphrase support via `ssh-add`.
 - **Terminal UI:** Lightweight and responsive terminal interface.
+
+## Release Notes
+Please see the [CHANGELOG.md](CHANGELOG.md) for the latest release notes and history.
 
 ## Requirements
 
@@ -19,14 +24,20 @@ A simple, fast terminal application built with Rust and [Ratatui](https://github
 Clone the repository and build the project using Cargo:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/yourusername/easy-ssh.git
 cd easy-ssh
-cargo build --release
 ```
 
-You can then run the executable located at `./target/release/easy-ssh`, or install it globally:
+If you just want to install and use it immediately, you can run the provided release script (Mac/Linux):
 
 ```bash
+./release.sh
+```
+
+Alternatively, you can build and install it manually via Cargo:
+
+```bash
+cargo build --release
 cargo install --path .
 ```
 
@@ -48,6 +59,8 @@ cargo run
 
 - <kbd>Up</kbd> or <kbd>k</kbd>: Move selection up
 - <kbd>Down</kbd> or <kbd>j</kbd>: Move selection down
+- <kbd>n</kbd>: Open the prompt to **create** a new SSH key
+- <kbd>i</kbd>: Open the file browser to **import** an existing `.pem` file
 - <kbd>c</kbd>: Copy the selected public key to the clipboard
 - <kbd>q</kbd> or <kbd>Esc</kbd>: Quit the application
 
