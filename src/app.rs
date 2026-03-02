@@ -1,7 +1,26 @@
-use crate::ssh::{create_ssh_key, get_ssh_keys, SshKey};
+use crate::ssh::{
+    create_ssh_key, get_ssh_keys, parse_known_hosts, parse_ssh_config, SshConfigEntry,
+    KnownHostEntry, SshKey,
+};
 use arboard::Clipboard;
 use ratatui::widgets::ListState;
 use std::time::{Duration, Instant};
+
+#[derive(PartialEq, Clone)]
+pub enum ActiveTab {
+    Keys,
+    SshConfig,
+    KnownHosts,
+}
+
+#[derive(PartialEq)]
+pub enum ConfigEditField {
+    Host,
+    Hostname,
+    User,
+    Port,
+    IdentityFile,
+}
 
 #[derive(PartialEq)]
 pub enum InputMode {
@@ -10,6 +29,7 @@ pub enum InputMode {
     FileBrowser,
     ImportAction,
     PasswordPrompt,
+    ConfigEditing,
 }
 
 #[derive(PartialEq)]
@@ -39,6 +59,20 @@ pub struct App {
     // Import State
     pub selected_import_file: Option<std::path::PathBuf>,
     pub password_input: String,
+
+    // Tab State
+    pub active_tab: ActiveTab,
+
+    // SSH Config State
+    pub config_entries: Vec<SshConfigEntry>,
+    pub config_list_state: ListState,
+    pub editing_config: Option<SshConfigEntry>,
+    pub config_edit_field: ConfigEditField,
+    pub config_edit_index: Option<usize>, // None = adding new, Some = editing existing
+
+    // Known Hosts State
+    pub known_hosts: Vec<KnownHostEntry>,
+    pub known_hosts_list_state: ListState,
 }
 
 impl App {
@@ -54,6 +88,18 @@ impl App {
         // Initialize file browser to home directory
         let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
         
+        let config_entries = parse_ssh_config();
+        let mut config_list_state = ListState::default();
+        if !config_entries.is_empty() {
+            config_list_state.select(Some(0));
+        }
+
+        let known_hosts = parse_known_hosts();
+        let mut known_hosts_list_state = ListState::default();
+        if !known_hosts.is_empty() {
+            known_hosts_list_state.select(Some(0));
+        }
+
         let mut app = App {
             keys,
             list_state,
@@ -69,6 +115,14 @@ impl App {
             file_list_state: ListState::default(),
             selected_import_file: None,
             password_input: String::new(),
+            active_tab: ActiveTab::Keys,
+            config_entries,
+            config_list_state,
+            editing_config: None,
+            config_edit_field: ConfigEditField::Host,
+            config_edit_index: None,
+            known_hosts,
+            known_hosts_list_state,
         };
 
         app.load_directory();
@@ -358,6 +412,188 @@ impl App {
                     self.popup_msg = Some(format!("ssh-add error: {}", e));
                     self.password_input.clear();
                 }
+            }
+        }
+    }
+
+    // --- Tab Methods ---
+
+    pub fn switch_tab(&mut self, tab: ActiveTab) {
+        self.active_tab = tab;
+    }
+
+    // --- SSH Config Methods ---
+
+    pub fn config_next(&mut self) {
+        let len = self.config_entries.len();
+        if len == 0 { return; }
+        let i = match self.config_list_state.selected() {
+            Some(i) => if i >= len - 1 { 0 } else { i + 1 },
+            None => 0,
+        };
+        self.config_list_state.select(Some(i));
+    }
+
+    pub fn config_previous(&mut self) {
+        let len = self.config_entries.len();
+        if len == 0 { return; }
+        let i = match self.config_list_state.selected() {
+            Some(i) => if i == 0 { len - 1 } else { i - 1 },
+            None => 0,
+        };
+        self.config_list_state.select(Some(i));
+    }
+
+    pub fn start_add_config(&mut self) {
+        self.editing_config = Some(SshConfigEntry::new());
+        self.config_edit_field = ConfigEditField::Host;
+        self.config_edit_index = None;
+        self.input_mode = InputMode::ConfigEditing;
+        self.popup_msg = None;
+    }
+
+    pub fn start_edit_config(&mut self) {
+        if let Some(idx) = self.config_list_state.selected() {
+            if let Some(entry) = self.config_entries.get(idx) {
+                self.editing_config = Some(entry.clone());
+                self.config_edit_field = ConfigEditField::Host;
+                self.config_edit_index = Some(idx);
+                self.input_mode = InputMode::ConfigEditing;
+                self.popup_msg = None;
+            }
+        }
+    }
+
+    pub fn cancel_config_edit(&mut self) {
+        self.editing_config = None;
+        self.input_mode = InputMode::Normal;
+        self.popup_msg = None;
+    }
+
+    pub fn config_edit_input(&mut self, c: char) {
+        if let Some(ref mut entry) = self.editing_config {
+            match self.config_edit_field {
+                ConfigEditField::Host => entry.host.push(c),
+                ConfigEditField::Hostname => entry.hostname.push(c),
+                ConfigEditField::User => entry.user.push(c),
+                ConfigEditField::Port => {
+                    if c.is_ascii_digit() {
+                        entry.port.push(c);
+                    }
+                }
+                ConfigEditField::IdentityFile => entry.identity_file.push(c),
+            }
+        }
+    }
+
+    pub fn config_edit_backspace(&mut self) {
+        if let Some(ref mut entry) = self.editing_config {
+            match self.config_edit_field {
+                ConfigEditField::Host => { entry.host.pop(); }
+                ConfigEditField::Hostname => { entry.hostname.pop(); }
+                ConfigEditField::User => { entry.user.pop(); }
+                ConfigEditField::Port => { entry.port.pop(); }
+                ConfigEditField::IdentityFile => { entry.identity_file.pop(); }
+            }
+        }
+    }
+
+    pub fn config_edit_next_field(&mut self) {
+        self.config_edit_field = match self.config_edit_field {
+            ConfigEditField::Host => ConfigEditField::Hostname,
+            ConfigEditField::Hostname => ConfigEditField::User,
+            ConfigEditField::User => ConfigEditField::Port,
+            ConfigEditField::Port => ConfigEditField::IdentityFile,
+            ConfigEditField::IdentityFile => ConfigEditField::Host,
+        };
+    }
+
+    pub fn confirm_config_edit(&mut self) {
+        if let Some(entry) = self.editing_config.take() {
+            if entry.host.is_empty() {
+                self.popup_msg = Some("Host name cannot be empty".to_string());
+                self.editing_config = Some(entry);
+                return;
+            }
+
+            if let Some(idx) = self.config_edit_index {
+                // Editing existing
+                let mut entries = parse_ssh_config();
+                if idx < entries.len() {
+                    entries[idx] = entry;
+                    if let Err(e) = crate::ssh::save_ssh_config(&entries) {
+                        self.popup_msg = Some(format!("Error saving: {}", e));
+                        return;
+                    }
+                }
+            } else {
+                // Adding new
+                if let Err(e) = crate::ssh::add_ssh_config_entry(&entry) {
+                    self.popup_msg = Some(format!("Error adding: {}", e));
+                    return;
+                }
+            }
+
+            self.config_entries = parse_ssh_config();
+            self.input_mode = InputMode::Normal;
+            self.clipboard_msg = Some(("SSH config saved!".to_string(), Instant::now()));
+        }
+    }
+
+    pub fn delete_config_entry(&mut self) {
+        if let Some(idx) = self.config_list_state.selected() {
+            if idx < self.config_entries.len() {
+                if let Err(e) = crate::ssh::remove_ssh_config_entry(idx) {
+                    self.clipboard_msg = Some((format!("Error: {}", e), Instant::now()));
+                    return;
+                }
+                self.config_entries = parse_ssh_config();
+                if self.config_entries.is_empty() {
+                    self.config_list_state.select(None);
+                } else if idx >= self.config_entries.len() {
+                    self.config_list_state.select(Some(self.config_entries.len() - 1));
+                }
+                self.clipboard_msg = Some(("Config entry deleted!".to_string(), Instant::now()));
+            }
+        }
+    }
+
+    // --- Known Hosts Methods ---
+
+    pub fn kh_next(&mut self) {
+        let len = self.known_hosts.len();
+        if len == 0 { return; }
+        let i = match self.known_hosts_list_state.selected() {
+            Some(i) => if i >= len - 1 { 0 } else { i + 1 },
+            None => 0,
+        };
+        self.known_hosts_list_state.select(Some(i));
+    }
+
+    pub fn kh_previous(&mut self) {
+        let len = self.known_hosts.len();
+        if len == 0 { return; }
+        let i = match self.known_hosts_list_state.selected() {
+            Some(i) => if i == 0 { len - 1 } else { i - 1 },
+            None => 0,
+        };
+        self.known_hosts_list_state.select(Some(i));
+    }
+
+    pub fn delete_known_host(&mut self) {
+        if let Some(idx) = self.known_hosts_list_state.selected() {
+            if idx < self.known_hosts.len() {
+                if let Err(e) = crate::ssh::delete_known_host(idx) {
+                    self.clipboard_msg = Some((format!("Error: {}", e), Instant::now()));
+                    return;
+                }
+                self.known_hosts = parse_known_hosts();
+                if self.known_hosts.is_empty() {
+                    self.known_hosts_list_state.select(None);
+                } else if idx >= self.known_hosts.len() {
+                    self.known_hosts_list_state.select(Some(self.known_hosts.len() - 1));
+                }
+                self.clipboard_msg = Some(("Known host removed!".to_string(), Instant::now()));
             }
         }
     }

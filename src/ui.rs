@@ -1,4 +1,4 @@
-use crate::app::{App, InputField, InputMode};
+use crate::app::{ActiveTab, App, ConfigEditField, InputField, InputMode};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -10,28 +10,49 @@ use ratatui::{
 pub fn ui(f: &mut Frame, app: &mut App) {
     app.update_clipboard_msg_timeout();
 
-    let chunks = Layout::default()
+    let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints(
             [
-                Constraint::Length(3),      // Header / messages
-                Constraint::Percentage(30), // Keys list
-                Constraint::Percentage(70), // Key details
+                Constraint::Length(3), // Header / tab bar
+                Constraint::Min(0),   // Content area
             ]
             .as_ref(),
         )
         .split(f.area());
 
-    render_header(f, app, chunks[0]);
-    render_keys_list(f, app, chunks[1]);
-    render_key_details(f, app, chunks[2]);
+    render_header(f, app, main_chunks[0]);
+
+    match app.active_tab {
+        ActiveTab::Keys => {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Percentage(30),
+                        Constraint::Percentage(70),
+                    ]
+                    .as_ref(),
+                )
+                .split(main_chunks[1]);
+            render_keys_list(f, app, chunks[0]);
+            render_key_details(f, app, chunks[1]);
+        }
+        ActiveTab::SshConfig => {
+            render_ssh_config(f, app, main_chunks[1]);
+        }
+        ActiveTab::KnownHosts => {
+            render_known_hosts(f, app, main_chunks[1]);
+        }
+    }
 
     match app.input_mode {
         InputMode::Editing => render_input_popup(f, app),
         InputMode::FileBrowser => render_file_browser(f, app),
         InputMode::ImportAction => render_action_popup(f, app),
         InputMode::PasswordPrompt => render_password_popup(f, app),
+        InputMode::ConfigEditing => render_config_edit_popup(f, app),
         InputMode::Normal => {}
     }
 }
@@ -171,25 +192,59 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         )])
     } else {
-        Line::from(vec![
-            Span::raw("Use "),
-            Span::styled("↑/↓", Style::default().fg(Color::Yellow)),
-            Span::raw(" or "),
-            Span::styled("j/k", Style::default().fg(Color::Yellow)),
-            Span::raw(" to navigate | "),
-            Span::styled("n", Style::default().fg(Color::Yellow)),
-            Span::raw(" to start creation | "),
-            Span::styled("i", Style::default().fg(Color::Yellow)),
-            Span::raw(" to import | "),
-            Span::styled("c", Style::default().fg(Color::Yellow)),
-            Span::raw(" to copy public key | "),
-            Span::styled("q", Style::default().fg(Color::Yellow)),
-            Span::raw(" to quit"),
-        ])
+        // Tab indicators
+        let tab_style = |tab: &ActiveTab, label: &str, key: &str| -> Vec<Span> {
+            let is_active = *tab == app.active_tab;
+            let style = if is_active {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            vec![
+                Span::styled(format!("[{}] ", key), Style::default().fg(Color::Yellow)),
+                Span::styled(label.to_string(), style),
+            ]
+        };
+
+        let mut spans = Vec::new();
+        spans.extend(tab_style(&ActiveTab::Keys, "Keys", "1"));
+        spans.push(Span::raw("  "));
+        spans.extend(tab_style(&ActiveTab::SshConfig, "Config", "2"));
+        spans.push(Span::raw("  "));
+        spans.extend(tab_style(&ActiveTab::KnownHosts, "Hosts", "3"));
+        spans.push(Span::raw("  │  "));
+
+        // Context-sensitive hints
+        match app.active_tab {
+            ActiveTab::Keys => {
+                spans.push(Span::styled("n", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":new "));
+                spans.push(Span::styled("i", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":import "));
+                spans.push(Span::styled("c", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":copy "));
+            }
+            ActiveTab::SshConfig => {
+                spans.push(Span::styled("a", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":add "));
+                spans.push(Span::styled("e", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":edit "));
+                spans.push(Span::styled("d", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":delete "));
+            }
+            ActiveTab::KnownHosts => {
+                spans.push(Span::styled("d", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":delete "));
+            }
+        }
+        spans.push(Span::styled("q", Style::default().fg(Color::Yellow)));
+        spans.push(Span::raw(":quit"));
+
+        Line::from(spans)
     };
 
     let header = Paragraph::new(msg)
-        .block(Block::default().borders(Borders::ALL).title(" easy-ssh "))
+        .block(Block::default().borders(Borders::ALL).title(" easy-ssh-tui "))
         .alignment(ratatui::layout::Alignment::Center);
     f.render_widget(header, area);
 }
@@ -331,4 +386,193 @@ fn render_password_popup(f: &mut Frame, app: &App) {
 
     // Set cursor
     f.set_cursor_position((chunks[1].x + app.password_input.len() as u16 + 2, chunks[1].y + 1));
+}
+
+fn render_ssh_config(f: &mut Frame, app: &mut App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)].as_ref())
+        .split(area);
+
+    // Config entries list
+    let items: Vec<ListItem> = app
+        .config_entries
+        .iter()
+        .map(|e| {
+            let detail = if !e.hostname.is_empty() {
+                format!("{} → {}@{}:{}", e.host, if e.user.is_empty() { "*" } else { &e.user }, e.hostname, e.port)
+            } else {
+                e.host.clone()
+            };
+            ListItem::new(Line::from(vec![Span::styled(
+                detail,
+                Style::default().fg(Color::White),
+            )]))
+        })
+        .collect();
+
+    let items_list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(" SSH Config Entries "))
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(">> ");
+
+    f.render_stateful_widget(items_list, chunks[0], &mut app.config_list_state);
+
+    // Config details for selected entry
+    if let Some(idx) = app.config_list_state.selected() {
+        if let Some(entry) = app.config_entries.get(idx) {
+            let detail_text = vec![
+                Line::from(vec![
+                    Span::styled("Host:          ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(&entry.host),
+                ]),
+                Line::from(vec![
+                    Span::styled("HostName:      ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(if entry.hostname.is_empty() { "-" } else { &entry.hostname }),
+                ]),
+                Line::from(vec![
+                    Span::styled("User:          ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(if entry.user.is_empty() { "-" } else { &entry.user }),
+                ]),
+                Line::from(vec![
+                    Span::styled("Port:          ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(&entry.port),
+                ]),
+                Line::from(vec![
+                    Span::styled("IdentityFile:  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(if entry.identity_file.is_empty() { "-" } else { &entry.identity_file }),
+                ]),
+            ];
+            let detail_p = Paragraph::new(detail_text)
+                .block(Block::default().borders(Borders::ALL).title(" Entry Details "))
+                .wrap(Wrap { trim: true });
+            f.render_widget(detail_p, chunks[1]);
+        }
+    } else {
+        let empty_p = Paragraph::new("No config file found or no entries")
+            .block(Block::default().borders(Borders::ALL).title(" Entry Details "))
+            .alignment(ratatui::layout::Alignment::Center);
+        f.render_widget(empty_p, chunks[1]);
+    }
+}
+
+fn render_known_hosts(f: &mut Frame, app: &mut App, area: Rect) {
+    let items: Vec<ListItem> = app
+        .known_hosts
+        .iter()
+        .map(|e| {
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("{:<40}", e.hostname),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    format!("{:<12}", e.key_type),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::raw("  "),
+                Span::styled(&e.fingerprint, Style::default().fg(Color::DarkGray)),
+            ]))
+        })
+        .collect();
+
+    let title = format!(" Known Hosts ({}) ", app.known_hosts.len());
+    let items_list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol(">> ");
+
+    f.render_stateful_widget(items_list, area, &mut app.known_hosts_list_state);
+}
+
+fn render_config_edit_popup(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 55, f.area());
+    f.render_widget(Clear, area);
+
+    let title = if app.config_edit_index.is_some() {
+        " Edit SSH Config Entry "
+    } else {
+        " Add SSH Config Entry "
+    };
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black));
+
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(3), // Host
+            Constraint::Length(3), // Hostname
+            Constraint::Length(3), // User
+            Constraint::Length(3), // Port
+            Constraint::Length(3), // IdentityFile
+            Constraint::Length(2), // Error
+            Constraint::Min(1),   // Help
+        ])
+        .split(inner_area);
+
+    if let Some(entry) = &app.editing_config {
+        let active_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        let inactive_style = Style::default().fg(Color::DarkGray);
+
+        let fields = [
+            ("Host (alias)", &entry.host, ConfigEditField::Host),
+            ("HostName (IP/domain)", &entry.hostname, ConfigEditField::Hostname),
+            ("User", &entry.user, ConfigEditField::User),
+            ("Port", &entry.port, ConfigEditField::Port),
+            ("IdentityFile", &entry.identity_file, ConfigEditField::IdentityFile),
+        ];
+
+        for (i, (label, value, field_enum)) in fields.iter().enumerate() {
+            let style = if app.config_edit_field == *field_enum { active_style } else { inactive_style };
+            let text = format!("> {}", value);
+            let widget = Paragraph::new(text)
+                .style(style)
+                .block(Block::default().borders(Borders::ALL).title(*label));
+            f.render_widget(widget, chunks[i]);
+        }
+
+        // Error message
+        if let Some(msg) = &app.popup_msg {
+            let err_w = Paragraph::new(msg.as_str())
+                .style(Style::default().fg(Color::Red))
+                .alignment(ratatui::layout::Alignment::Center);
+            f.render_widget(err_w, chunks[5]);
+        }
+
+        // Help
+        let help = Paragraph::new("Tab to switch | Enter to save | Esc to cancel")
+            .style(Style::default().fg(Color::Gray))
+            .alignment(ratatui::layout::Alignment::Center);
+        f.render_widget(help, chunks[6]);
+
+        // Cursor
+        let field_idx = match app.config_edit_field {
+            ConfigEditField::Host => 0,
+            ConfigEditField::Hostname => 1,
+            ConfigEditField::User => 2,
+            ConfigEditField::Port => 3,
+            ConfigEditField::IdentityFile => 4,
+        };
+        let current_value = fields[field_idx].1;
+        f.set_cursor_position((
+            chunks[field_idx].x + current_value.len() as u16 + 2,
+            chunks[field_idx].y + 1,
+        ));
+    }
 }

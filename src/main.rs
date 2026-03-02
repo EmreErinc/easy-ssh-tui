@@ -2,7 +2,7 @@ pub mod app;
 pub mod ssh;
 pub mod ui;
 
-use app::{App, InputMode};
+use app::{ActiveTab, App, InputMode};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -66,11 +66,29 @@ where
             match app.input_mode {
                 InputMode::Normal => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    KeyCode::Down | KeyCode::Char('j') => app.next(),
-                    KeyCode::Up | KeyCode::Char('k') => app.previous(),
-                    KeyCode::Char('c') => app.copy_public_key(),
-                    KeyCode::Char('n') => app.start_creation(),
-                    KeyCode::Char('i') => app.start_file_browser(),
+                    // Tab switching
+                    KeyCode::Char('1') => app.switch_tab(ActiveTab::Keys),
+                    KeyCode::Char('2') => app.switch_tab(ActiveTab::SshConfig),
+                    KeyCode::Char('3') => app.switch_tab(ActiveTab::KnownHosts),
+                    // Navigation (works across all tabs)
+                    KeyCode::Down | KeyCode::Char('j') => match app.active_tab {
+                        ActiveTab::Keys => app.next(),
+                        ActiveTab::SshConfig => app.config_next(),
+                        ActiveTab::KnownHosts => app.kh_next(),
+                    },
+                    KeyCode::Up | KeyCode::Char('k') => match app.active_tab {
+                        ActiveTab::Keys => app.previous(),
+                        ActiveTab::SshConfig => app.config_previous(),
+                        ActiveTab::KnownHosts => app.kh_previous(),
+                    },
+                    // Tab-specific actions
+                    KeyCode::Char('c') if app.active_tab == ActiveTab::Keys => app.copy_public_key(),
+                    KeyCode::Char('n') if app.active_tab == ActiveTab::Keys => app.start_creation(),
+                    KeyCode::Char('i') if app.active_tab == ActiveTab::Keys => app.start_file_browser(),
+                    KeyCode::Char('a') if app.active_tab == ActiveTab::SshConfig => app.start_add_config(),
+                    KeyCode::Char('e') if app.active_tab == ActiveTab::SshConfig => app.start_edit_config(),
+                    KeyCode::Char('d') if app.active_tab == ActiveTab::SshConfig => app.delete_config_entry(),
+                    KeyCode::Char('d') if app.active_tab == ActiveTab::KnownHosts => app.delete_known_host(),
                     _ => {}
                 },
                 InputMode::Editing => match key.code {
@@ -101,7 +119,15 @@ where
                     KeyCode::Backspace => app.handle_password_backspace(),
                     KeyCode::Esc => app.cancel_import(),
                     _ => {}
-                }
+                },
+                InputMode::ConfigEditing => match key.code {
+                    KeyCode::Enter => app.confirm_config_edit(),
+                    KeyCode::Char(c) => app.config_edit_input(c),
+                    KeyCode::Backspace => app.config_edit_backspace(),
+                    KeyCode::Tab => app.config_edit_next_field(),
+                    KeyCode::Esc => app.cancel_config_edit(),
+                    _ => {}
+                },
             }
         }
     }

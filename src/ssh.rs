@@ -175,3 +175,220 @@ pub fn ssh_add_with_password(path: &Path, password: &str) -> std::io::Result<()>
         _ => Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to add key or incorrect password")),
     }
 }
+
+// --- SSH Config ---
+
+#[derive(Clone)]
+pub struct SshConfigEntry {
+    pub host: String,
+    pub hostname: String,
+    pub user: String,
+    pub port: String,
+    pub identity_file: String,
+}
+
+impl SshConfigEntry {
+    pub fn new() -> Self {
+        Self {
+            host: String::new(),
+            hostname: String::new(),
+            user: String::new(),
+            port: String::from("22"),
+            identity_file: String::new(),
+        }
+    }
+}
+
+pub fn parse_ssh_config() -> Vec<SshConfigEntry> {
+    let mut entries = Vec::new();
+    let mut ssh_dir = match dirs::home_dir() {
+        Some(d) => d,
+        None => return entries,
+    };
+    ssh_dir.push(".ssh");
+    ssh_dir.push("config");
+
+    let content = match fs::read_to_string(&ssh_dir) {
+        Ok(c) => c,
+        Err(_) => return entries,
+    };
+
+    let mut current: Option<SshConfigEntry> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if let Some((key, value)) = trimmed.split_once(char::is_whitespace) {
+            let key_lower = key.to_lowercase();
+            let value = value.trim().to_string();
+
+            match key_lower.as_str() {
+                "host" => {
+                    if let Some(entry) = current.take() {
+                        entries.push(entry);
+                    }
+                    let mut entry = SshConfigEntry::new();
+                    entry.host = value;
+                    current = Some(entry);
+                }
+                "hostname" => {
+                    if let Some(ref mut entry) = current {
+                        entry.hostname = value;
+                    }
+                }
+                "user" => {
+                    if let Some(ref mut entry) = current {
+                        entry.user = value;
+                    }
+                }
+                "port" => {
+                    if let Some(ref mut entry) = current {
+                        entry.port = value;
+                    }
+                }
+                "identityfile" => {
+                    if let Some(ref mut entry) = current {
+                        entry.identity_file = value;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if let Some(entry) = current.take() {
+        entries.push(entry);
+    }
+
+    entries
+}
+
+pub fn save_ssh_config(entries: &[SshConfigEntry]) -> std::io::Result<()> {
+    let mut ssh_path = dirs::home_dir()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Home not found"))?;
+    ssh_path.push(".ssh");
+    ssh_path.push("config");
+
+    let mut content = String::new();
+    for entry in entries {
+        content.push_str(&format!("Host {}\n", entry.host));
+        if !entry.hostname.is_empty() {
+            content.push_str(&format!("    HostName {}\n", entry.hostname));
+        }
+        if !entry.user.is_empty() {
+            content.push_str(&format!("    User {}\n", entry.user));
+        }
+        if !entry.port.is_empty() && entry.port != "22" {
+            content.push_str(&format!("    Port {}\n", entry.port));
+        }
+        if !entry.identity_file.is_empty() {
+            content.push_str(&format!("    IdentityFile {}\n", entry.identity_file));
+        }
+        content.push('\n');
+    }
+
+    fs::write(&ssh_path, content)
+}
+
+pub fn add_ssh_config_entry(entry: &SshConfigEntry) -> std::io::Result<()> {
+    let mut entries = parse_ssh_config();
+    entries.push(entry.clone());
+    save_ssh_config(&entries)
+}
+
+pub fn remove_ssh_config_entry(index: usize) -> std::io::Result<()> {
+    let mut entries = parse_ssh_config();
+    if index < entries.len() {
+        entries.remove(index);
+        save_ssh_config(&entries)?;
+    }
+    Ok(())
+}
+
+// --- Known Hosts ---
+
+#[derive(Clone)]
+pub struct KnownHostEntry {
+    pub hostname: String,
+    pub key_type: String,
+    pub fingerprint: String,
+}
+
+pub fn parse_known_hosts() -> Vec<KnownHostEntry> {
+    let mut entries = Vec::new();
+    let mut path = match dirs::home_dir() {
+        Some(d) => d,
+        None => return entries,
+    };
+    path.push(".ssh");
+    path.push("known_hosts");
+
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return entries,
+    };
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.splitn(3, ' ').collect();
+        if parts.len() >= 2 {
+            entries.push(KnownHostEntry {
+                hostname: parts[0].to_string(),
+                key_type: parts[1].to_string(),
+                fingerprint: if parts.len() > 2 {
+                    // Show only the first 30 chars of the key for display
+                    let fp = parts[2];
+                    if fp.len() > 30 {
+                        format!("{}...", &fp[..30])
+                    } else {
+                        fp.to_string()
+                    }
+                } else {
+                    String::new()
+                },
+            });
+        }
+    }
+
+    entries
+}
+
+pub fn delete_known_host(index: usize) -> std::io::Result<()> {
+    let mut path = dirs::home_dir()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Home not found"))?;
+    path.push(".ssh");
+    path.push("known_hosts");
+
+    let content = fs::read_to_string(&path)?;
+    let lines: Vec<&str> = content.lines().collect();
+
+    // Filter out blank/comment lines to map display index to real line index
+    let mut real_indices: Vec<usize> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with('#') {
+            real_indices.push(i);
+        }
+    }
+
+    if index >= real_indices.len() {
+        return Ok(());
+    }
+
+    let line_to_remove = real_indices[index];
+    let new_content: String = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != line_to_remove)
+        .map(|(_, line)| *line)
+        .collect::<Vec<&str>>()
+        .join("\n");
+
+    fs::write(&path, new_content + "\n")
+}

@@ -9,6 +9,9 @@ A simple, fast terminal application built with Rust and [Ratatui](https://github
 - **Copy Public Key:** Quickly copy the selected public key to your clipboard with a single keystroke.
 - **SSH Key Generation:** Create new `ed25519` SSH keys directly from the UI.
 - **PEM File Importer:** Securely import existing `.pem` files from your filesystem with automatic permission handling (`chmod 600`) and passphrase support via `ssh-add`.
+- **SSH Config Editor:** View, add, edit, and delete `~/.ssh/config` host entries directly from the TUI.
+- **Known Hosts Viewer:** Browse and manage `~/.ssh/known_hosts` entries with the ability to delete stale hosts.
+- **Tab-based Navigation:** Switch between Keys, Config, and Known Hosts views using number keys.
 - **Terminal UI:** Lightweight and responsive terminal interface.
 
 ## Release Notes
@@ -57,12 +60,26 @@ cargo run
 
 ### Keybindings
 
+#### Global
+- <kbd>1</kbd>: Switch to **Keys** tab
+- <kbd>2</kbd>: Switch to **Config** tab
+- <kbd>3</kbd>: Switch to **Known Hosts** tab
 - <kbd>Up</kbd> or <kbd>k</kbd>: Move selection up
 - <kbd>Down</kbd> or <kbd>j</kbd>: Move selection down
-- <kbd>n</kbd>: Open the prompt to **create** a new SSH key
-- <kbd>i</kbd>: Open the file browser to **import** an existing `.pem` file
-- <kbd>c</kbd>: Copy the selected public key to the clipboard
 - <kbd>q</kbd> or <kbd>Esc</kbd>: Quit the application
+
+#### Keys Tab
+- <kbd>n</kbd>: Create a new SSH key
+- <kbd>i</kbd>: Import a `.pem` file
+- <kbd>c</kbd>: Copy the selected public key to clipboard
+
+#### Config Tab
+- <kbd>a</kbd>: Add a new SSH config entry
+- <kbd>e</kbd>: Edit the selected entry
+- <kbd>d</kbd>: Delete the selected entry
+
+#### Known Hosts Tab
+- <kbd>d</kbd>: Delete the selected known host entry
 
 ## Dependencies
 
