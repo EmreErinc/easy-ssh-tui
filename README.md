@@ -11,6 +11,8 @@ A simple, fast terminal application built with Rust and [Ratatui](https://github
 - **PEM File Importer:** Securely import existing `.pem` files from your filesystem with automatic permission handling (`chmod 600`) and passphrase support via `ssh-add`.
 - **SSH Config Editor:** View, add, edit, and delete `~/.ssh/config` host entries directly from the TUI.
 - **Known Hosts Viewer:** Browse and manage `~/.ssh/known_hosts` entries with the ability to delete stale hosts.
+- **Export to GitHub/GitLab:** Push your public keys directly to GitHub or GitLab using their APIs.
+- **Search/Filter:** Quickly find keys by name with real-time filtering.
 - **Tab-based Navigation:** Switch between Keys, Config, and Known Hosts views using number keys.
 - **Terminal UI:** Lightweight and responsive terminal interface.
 
@@ -72,6 +74,8 @@ cargo run
 - <kbd>n</kbd>: Create a new SSH key
 - <kbd>i</kbd>: Import a `.pem` file
 - <kbd>c</kbd>: Copy the selected public key to clipboard
+- <kbd>e</kbd>: Export public key to GitHub or GitLab
+- <kbd>/</kbd>: Search/filter keys by name
 
 #### Config Tab
 - <kbd>a</kbd>: Add a new SSH config entry

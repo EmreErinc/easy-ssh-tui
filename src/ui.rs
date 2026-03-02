@@ -1,4 +1,4 @@
-use crate::app::{ActiveTab, App, ConfigEditField, InputField, InputMode};
+use crate::app::{ActiveTab, App, ConfigEditField, ExportPlatformChoice, InputField, InputMode};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -26,18 +26,26 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     match app.active_tab {
         ActiveTab::Keys => {
+            let mut constraints = vec![];
+            if app.search_active || app.input_mode == InputMode::Searching {
+                constraints.push(Constraint::Length(3)); // Search bar
+            }
+            constraints.push(Constraint::Percentage(30));
+            constraints.push(Constraint::Percentage(70));
+
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(30),
-                        Constraint::Percentage(70),
-                    ]
-                    .as_ref(),
-                )
+                .constraints(constraints)
                 .split(main_chunks[1]);
-            render_keys_list(f, app, chunks[0]);
-            render_key_details(f, app, chunks[1]);
+
+            let offset = if app.search_active || app.input_mode == InputMode::Searching {
+                render_search_bar(f, app, chunks[0]);
+                1
+            } else {
+                0
+            };
+            render_keys_list(f, app, chunks[offset]);
+            render_key_details(f, app, chunks[offset + 1]);
         }
         ActiveTab::SshConfig => {
             render_ssh_config(f, app, main_chunks[1]);
@@ -53,7 +61,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         InputMode::ImportAction => render_action_popup(f, app),
         InputMode::PasswordPrompt => render_password_popup(f, app),
         InputMode::ConfigEditing => render_config_edit_popup(f, app),
-        InputMode::Normal => {}
+        InputMode::ExportPlatform => render_export_platform_popup(f, app),
+        InputMode::ExportToken => render_export_token_popup(f, app),
+        InputMode::Normal | InputMode::Searching => {}
     }
 }
 
@@ -223,6 +233,10 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
                 spans.push(Span::raw(":import "));
                 spans.push(Span::styled("c", Style::default().fg(Color::Yellow)));
                 spans.push(Span::raw(":copy "));
+                spans.push(Span::styled("e", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":export "));
+                spans.push(Span::styled("/", Style::default().fg(Color::Yellow)));
+                spans.push(Span::raw(":search "));
             }
             ActiveTab::SshConfig => {
                 spans.push(Span::styled("a", Style::default().fg(Color::Yellow)));
@@ -250,8 +264,8 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_keys_list(f: &mut Frame, app: &mut App, area: Rect) {
-    let items: Vec<ListItem> = app
-        .keys
+    let visible = app.visible_keys();
+    let items: Vec<ListItem> = visible
         .iter()
         .map(|k| {
             ListItem::new(Line::from(vec![Span::styled(
@@ -261,8 +275,14 @@ fn render_keys_list(f: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
 
+    let title = if app.search_active {
+        format!(" SSH Keys ({} matches) ", visible.len())
+    } else {
+        format!(" SSH Keys ({}) ", visible.len())
+    };
+
     let items_list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" SSH Keys "))
+        .block(Block::default().borders(Borders::ALL).title(title))
         .highlight_style(
             Style::default()
                 .bg(Color::DarkGray)
@@ -279,30 +299,28 @@ fn render_key_details(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
         .split(area);
 
-    if let Some(selected) = app.list_state.selected() {
-        if let Some(key) = app.keys.get(selected) {
-            let pub_key_p = Paragraph::new(key.public_content.clone())
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Public Key (Selected) "),
-                )
-                .wrap(Wrap { trim: true })
-                .style(Style::default().fg(Color::Cyan));
-            f.render_widget(pub_key_p, chunks[0]);
+    if let Some(key) = app.get_selected_key() {
+        let pub_key_p = Paragraph::new(key.public_content.clone())
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Public Key (Selected) "),
+            )
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::Cyan));
+        f.render_widget(pub_key_p, chunks[0]);
 
-            let priv_key_p = Paragraph::new(key.private_content.clone())
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Private Key "),
-                )
-                .wrap(Wrap { trim: true })
-                .style(Style::default().fg(Color::LightMagenta));
-            f.render_widget(priv_key_p, chunks[1]);
-        }
+        let priv_key_p = Paragraph::new(key.private_content.clone())
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Private Key "),
+            )
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::LightMagenta));
+        f.render_widget(priv_key_p, chunks[1]);
     } else {
-        let empty_p = Paragraph::new("No key selected")
+        let empty_p = Paragraph::new(if app.search_active { "No matching keys" } else { "No key selected" })
             .block(Block::default().borders(Borders::ALL).title(" Details "))
             .alignment(ratatui::layout::Alignment::Center);
         f.render_widget(empty_p, area);
@@ -575,4 +593,111 @@ fn render_config_edit_popup(f: &mut Frame, app: &App) {
             chunks[field_idx].y + 1,
         ));
     }
+}
+
+fn render_search_bar(f: &mut Frame, app: &App, area: Rect) {
+    let text = format!("/ {}", app.search_query);
+    let style = if app.input_mode == InputMode::Searching {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    let widget = Paragraph::new(text)
+        .style(style)
+        .block(Block::default().borders(Borders::ALL).title(" Search (Esc to clear) "));
+    f.render_widget(widget, area);
+
+    if app.input_mode == InputMode::Searching {
+        f.set_cursor_position((
+            area.x + app.search_query.len() as u16 + 3,
+            area.y + 1,
+        ));
+    }
+}
+
+fn render_export_platform_popup(f: &mut Frame, _app: &App) {
+    let area = centered_rect(40, 20, f.area());
+    f.render_widget(Clear, area);
+
+    let block = Block::default()
+        .title(" Export Public Key ")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black));
+
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([Constraint::Length(2), Constraint::Length(2)])
+        .split(inner_area);
+
+    let question = Paragraph::new("Select platform:")
+        .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(question, chunks[0]);
+
+    let options = Paragraph::new(Line::from(vec![
+        Span::raw("Press "),
+        Span::styled("[1]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" GitHub  "),
+        Span::styled("[2]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" GitLab  "),
+        Span::styled("[Esc]", Style::default().fg(Color::DarkGray)),
+        Span::raw(" Cancel"),
+    ]))
+    .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(options, chunks[1]);
+}
+
+fn render_export_token_popup(f: &mut Frame, app: &App) {
+    let area = centered_rect(55, 25, f.area());
+    f.render_widget(Clear, area);
+
+    let platform_name = match &app.export_platform {
+        Some(ExportPlatformChoice::GitHub) => "GitHub",
+        Some(ExportPlatformChoice::GitLab) => "GitLab",
+        None => "Unknown",
+    };
+
+    let block = Block::default()
+        .title(format!(" Export to {} ", platform_name))
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black));
+
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(3),
+            Constraint::Length(2),
+        ])
+        .split(inner_area);
+
+    let intro = Paragraph::new(format!("Enter your {} Personal Access Token:", platform_name))
+        .alignment(ratatui::layout::Alignment::Center);
+    f.render_widget(intro, chunks[0]);
+
+    let masked: String = app.export_token.chars().map(|_| '*').collect();
+    let input_text = format!("> {}", masked);
+    let input_widget = Paragraph::new(input_text)
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .block(Block::default().borders(Borders::ALL).title("Token"));
+    f.render_widget(input_widget, chunks[1]);
+
+    if let Some(msg) = &app.popup_msg {
+        let err_w = Paragraph::new(msg.as_str())
+            .style(Style::default().fg(Color::Red))
+            .alignment(ratatui::layout::Alignment::Center);
+        f.render_widget(err_w, chunks[2]);
+    }
+
+    f.set_cursor_position((
+        chunks[1].x + app.export_token.len() as u16 + 3,
+        chunks[1].y + 1,
+    ));
 }

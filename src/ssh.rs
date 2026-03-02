@@ -392,3 +392,59 @@ pub fn delete_known_host(index: usize) -> std::io::Result<()> {
 
     fs::write(&path, new_content + "\n")
 }
+
+// --- Export to GitHub/GitLab ---
+
+pub fn export_key_to_github(token: &str, title: &str, key: &str) -> Result<String, String> {
+    let body = format!(
+        r#"{{"title":"{}","key":"{}"}}"#,
+        title.replace('"', r#"\""#),
+        key.trim().replace('"', r#"\""#)
+    );
+
+    let response = ureq::post("https://api.github.com/user/keys")
+        .header("Authorization", &format!("Bearer {}", token))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "easy-ssh-tui")
+        .header("Content-Type", "application/json")
+        .send(body.as_bytes());
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            if status == 201 {
+                Ok("Key successfully added to GitHub!".to_string())
+            } else {
+                let body_text = resp.into_body().read_to_string().unwrap_or_default();
+                Err(format!("GitHub API error ({}): {}", status, body_text))
+            }
+        }
+        Err(e) => Err(format!("Request failed: {}", e)),
+    }
+}
+
+pub fn export_key_to_gitlab(token: &str, title: &str, key: &str) -> Result<String, String> {
+    let body = format!(
+        r#"{{"title":"{}","key":"{}"}}"#,
+        title.replace('"', r#"\""#),
+        key.trim().replace('"', r#"\""#)
+    );
+
+    let response = ureq::post("https://gitlab.com/api/v4/user/keys")
+        .header("PRIVATE-TOKEN", token)
+        .header("Content-Type", "application/json")
+        .send(body.as_bytes());
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            if status == 201 {
+                Ok("Key successfully added to GitLab!".to_string())
+            } else {
+                let body_text = resp.into_body().read_to_string().unwrap_or_default();
+                Err(format!("GitLab API error ({}): {}", status, body_text))
+            }
+        }
+        Err(e) => Err(format!("Request failed: {}", e)),
+    }
+}

@@ -2,7 +2,7 @@ pub mod app;
 pub mod ssh;
 pub mod ui;
 
-use app::{ActiveTab, App, InputMode};
+use app::{ActiveTab, App, ExportPlatformChoice, InputMode};
 use crossterm::{
     cursor::{Hide, Show},
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -66,29 +66,39 @@ where
         if let Event::Key(key) = event::read()? {
             match app.input_mode {
                 InputMode::Normal => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        if app.search_active {
+                            app.cancel_search();
+                        } else {
+                            return Ok(());
+                        }
+                    }
                     // Tab switching
                     KeyCode::Char('1') => app.switch_tab(ActiveTab::Keys),
                     KeyCode::Char('2') => app.switch_tab(ActiveTab::SshConfig),
                     KeyCode::Char('3') => app.switch_tab(ActiveTab::KnownHosts),
-                    // Navigation (works across all tabs)
+                    // Navigation
                     KeyCode::Down | KeyCode::Char('j') => match app.active_tab {
-                        ActiveTab::Keys => app.next(),
+                        ActiveTab::Keys => app.next_visible(),
                         ActiveTab::SshConfig => app.config_next(),
                         ActiveTab::KnownHosts => app.kh_next(),
                     },
                     KeyCode::Up | KeyCode::Char('k') => match app.active_tab {
-                        ActiveTab::Keys => app.previous(),
+                        ActiveTab::Keys => app.previous_visible(),
                         ActiveTab::SshConfig => app.config_previous(),
                         ActiveTab::KnownHosts => app.kh_previous(),
                     },
-                    // Tab-specific actions
+                    // Keys tab actions
                     KeyCode::Char('c') if app.active_tab == ActiveTab::Keys => app.copy_public_key(),
                     KeyCode::Char('n') if app.active_tab == ActiveTab::Keys => app.start_creation(),
                     KeyCode::Char('i') if app.active_tab == ActiveTab::Keys => app.start_file_browser(),
+                    KeyCode::Char('e') if app.active_tab == ActiveTab::Keys => app.start_export(),
+                    KeyCode::Char('/') if app.active_tab == ActiveTab::Keys => app.start_search(),
+                    // Config tab actions
                     KeyCode::Char('a') if app.active_tab == ActiveTab::SshConfig => app.start_add_config(),
                     KeyCode::Char('e') if app.active_tab == ActiveTab::SshConfig => app.start_edit_config(),
                     KeyCode::Char('d') if app.active_tab == ActiveTab::SshConfig => app.delete_config_entry(),
+                    // Known Hosts tab actions
                     KeyCode::Char('d') if app.active_tab == ActiveTab::KnownHosts => app.delete_known_host(),
                     _ => {}
                 },
@@ -127,6 +137,26 @@ where
                     KeyCode::Backspace => app.config_edit_backspace(),
                     KeyCode::Tab => app.config_edit_next_field(),
                     KeyCode::Esc => app.cancel_config_edit(),
+                    _ => {}
+                },
+                InputMode::ExportPlatform => match key.code {
+                    KeyCode::Char('1') => app.select_export_platform(ExportPlatformChoice::GitHub),
+                    KeyCode::Char('2') => app.select_export_platform(ExportPlatformChoice::GitLab),
+                    KeyCode::Esc => app.cancel_export(),
+                    _ => {}
+                },
+                InputMode::ExportToken => match key.code {
+                    KeyCode::Enter => app.submit_export(),
+                    KeyCode::Char(c) => app.export_token_input(c),
+                    KeyCode::Backspace => app.export_token_backspace(),
+                    KeyCode::Esc => app.cancel_export(),
+                    _ => {}
+                },
+                InputMode::Searching => match key.code {
+                    KeyCode::Enter => app.confirm_search(),
+                    KeyCode::Char(c) => app.search_input(c),
+                    KeyCode::Backspace => app.search_backspace(),
+                    KeyCode::Esc => app.cancel_search(),
                     _ => {}
                 },
             }

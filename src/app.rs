@@ -30,6 +30,15 @@ pub enum InputMode {
     ImportAction,
     PasswordPrompt,
     ConfigEditing,
+    ExportPlatform,
+    ExportToken,
+    Searching,
+}
+
+#[derive(PartialEq, Clone)]
+pub enum ExportPlatformChoice {
+    GitHub,
+    GitLab,
 }
 
 #[derive(PartialEq)]
@@ -73,6 +82,15 @@ pub struct App {
     // Known Hosts State
     pub known_hosts: Vec<KnownHostEntry>,
     pub known_hosts_list_state: ListState,
+
+    // Export State
+    pub export_platform: Option<ExportPlatformChoice>,
+    pub export_token: String,
+
+    // Search State
+    pub search_query: String,
+    pub filtered_keys: Vec<usize>,
+    pub search_active: bool,
 }
 
 impl App {
@@ -123,6 +141,11 @@ impl App {
             config_edit_index: None,
             known_hosts,
             known_hosts_list_state,
+            export_platform: None,
+            export_token: String::new(),
+            search_query: String::new(),
+            filtered_keys: Vec::new(),
+            search_active: false,
         };
 
         app.load_directory();
@@ -595,6 +618,185 @@ impl App {
                 }
                 self.clipboard_msg = Some(("Known host removed!".to_string(), Instant::now()));
             }
+        }
+    }
+
+    // --- Export Methods ---
+
+    pub fn start_export(&mut self) {
+        if self.list_state.selected().is_some() {
+            self.input_mode = InputMode::ExportPlatform;
+            self.export_platform = None;
+            self.export_token.clear();
+            self.popup_msg = None;
+        }
+    }
+
+    pub fn select_export_platform(&mut self, platform: ExportPlatformChoice) {
+        self.export_platform = Some(platform);
+        self.input_mode = InputMode::ExportToken;
+        self.export_token.clear();
+        self.popup_msg = None;
+    }
+
+    pub fn cancel_export(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.export_platform = None;
+        self.export_token.clear();
+        self.popup_msg = None;
+    }
+
+    pub fn export_token_input(&mut self, c: char) {
+        self.export_token.push(c);
+    }
+
+    pub fn export_token_backspace(&mut self) {
+        self.export_token.pop();
+    }
+
+    pub fn submit_export(&mut self) {
+        if self.export_token.is_empty() {
+            self.popup_msg = Some("Token cannot be empty".to_string());
+            return;
+        }
+
+        let selected = match self.list_state.selected() {
+            Some(i) => i,
+            None => return,
+        };
+
+        // Get real index if search is active
+        let real_idx = if self.search_active && !self.filtered_keys.is_empty() {
+            self.filtered_keys[selected]
+        } else {
+            selected
+        };
+
+        let key = match self.keys.get(real_idx) {
+            Some(k) => k,
+            None => return,
+        };
+
+        let title = key.name.clone();
+        let pub_key = key.public_content.clone();
+        let token = self.export_token.clone();
+
+        let result = match &self.export_platform {
+            Some(ExportPlatformChoice::GitHub) => {
+                crate::ssh::export_key_to_github(&token, &title, &pub_key)
+            }
+            Some(ExportPlatformChoice::GitLab) => {
+                crate::ssh::export_key_to_gitlab(&token, &title, &pub_key)
+            }
+            None => return,
+        };
+
+        match result {
+            Ok(msg) => {
+                self.cancel_export();
+                self.clipboard_msg = Some((msg, Instant::now()));
+            }
+            Err(e) => {
+                self.popup_msg = Some(e);
+                self.export_token.clear();
+            }
+        }
+    }
+
+    // --- Search/Filter Methods ---
+
+    pub fn start_search(&mut self) {
+        self.input_mode = InputMode::Searching;
+        self.search_query.clear();
+        self.search_active = true;
+        self.update_filtered_keys();
+    }
+
+    pub fn search_input(&mut self, c: char) {
+        self.search_query.push(c);
+        self.update_filtered_keys();
+    }
+
+    pub fn search_backspace(&mut self) {
+        self.search_query.pop();
+        self.update_filtered_keys();
+    }
+
+    pub fn cancel_search(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.search_query.clear();
+        self.search_active = false;
+        self.filtered_keys.clear();
+        // Reset selection
+        if !self.keys.is_empty() {
+            self.list_state.select(Some(0));
+        }
+    }
+
+    pub fn confirm_search(&mut self) {
+        // Exit search mode but keep the filter active
+        self.input_mode = InputMode::Normal;
+    }
+
+    fn update_filtered_keys(&mut self) {
+        let query = self.search_query.to_lowercase();
+        self.filtered_keys = self
+            .keys
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| {
+                if query.is_empty() {
+                    true
+                } else {
+                    k.name.to_lowercase().contains(&query)
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        // Reset selection for filtered list
+        if self.filtered_keys.is_empty() {
+            self.list_state.select(None);
+        } else {
+            self.list_state.select(Some(0));
+        }
+    }
+
+    pub fn visible_keys(&self) -> Vec<&SshKey> {
+        if self.search_active {
+            self.filtered_keys.iter().filter_map(|&i| self.keys.get(i)).collect()
+        } else {
+            self.keys.iter().collect()
+        }
+    }
+
+    pub fn next_visible(&mut self) {
+        let len = self.visible_keys().len();
+        if len == 0 { return; }
+        let i = match self.list_state.selected() {
+            Some(i) => if i >= len - 1 { 0 } else { i + 1 },
+            None => 0,
+        };
+        self.list_state.select(Some(i));
+    }
+
+    pub fn previous_visible(&mut self) {
+        let len = self.visible_keys().len();
+        if len == 0 { return; }
+        let i = match self.list_state.selected() {
+            Some(i) => if i == 0 { len - 1 } else { i - 1 },
+            None => 0,
+        };
+        self.list_state.select(Some(i));
+    }
+
+    pub fn get_selected_key(&self) -> Option<&SshKey> {
+        let selected = self.list_state.selected()?;
+        if self.search_active && !self.filtered_keys.is_empty() {
+            let real_idx = *self.filtered_keys.get(selected)?;
+            self.keys.get(real_idx)
+        } else {
+            self.keys.get(selected)
         }
     }
 }
