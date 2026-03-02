@@ -4,6 +4,7 @@ pub mod ui;
 
 use app::{ActiveTab, App, InputMode};
 use crossterm::{
+    cursor::{Hide, Show},
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -26,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, Hide)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -39,9 +40,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
-        DisableMouseCapture
+        DisableMouseCapture,
+        Show
     )?;
-    terminal.show_cursor()?;
 
     if let Err(err) = res {
         println!("{:?}", err)

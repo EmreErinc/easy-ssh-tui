@@ -2,12 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.2] - 2026-03-02
+## [0.1.1] - 2026-03-02
 
 ### Added
 - **SSH Config Editor:** View, add, edit, and delete `~/.ssh/config` host entries (Host, HostName, User, Port, IdentityFile) directly from the TUI.
 - **Known Hosts Viewer:** Browse and manage `~/.ssh/known_hosts` entries with hostname, key type, and fingerprint display. Delete stale entries with <kbd>d</kbd>.
 - **Tab-based Navigation:** Switch between Keys (<kbd>1</kbd>), Config (<kbd>2</kbd>), and Known Hosts (<kbd>3</kbd>) views. The header bar now shows context-sensitive keybinding hints for the active tab.
+
+### Fixed
+- Fixed cursor positioning in all input fields — cursor now correctly appears after the last typed character.
+- Fixed cursor visibility — cursor is properly hidden during non-input modes.
 
 ## [0.1.0] - 2026-02-28
 

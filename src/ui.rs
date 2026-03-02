@@ -138,8 +138,8 @@ fn render_input_popup(f: &mut Frame, app: &App) {
     match app.input_mode {
         InputMode::Editing => {
             let cursor_x = match app.input_field {
-                InputField::Name => chunks[0].x + app.input_name.len() as u16 + 2,
-                InputField::Email => chunks[1].x + app.input_email.len() as u16 + 2,
+                InputField::Name => chunks[0].x + app.input_name.len() as u16 + 3,
+                InputField::Email => chunks[1].x + app.input_email.len() as u16 + 3,
             };
             let cursor_y = match app.input_field {
                 InputField::Name => chunks[0].y + 1,
@@ -385,7 +385,7 @@ fn render_password_popup(f: &mut Frame, app: &App) {
     }
 
     // Set cursor
-    f.set_cursor_position((chunks[1].x + app.password_input.len() as u16 + 2, chunks[1].y + 1));
+    f.set_cursor_position((chunks[1].x + app.password_input.len() as u16 + 3, chunks[1].y + 1));
 }
 
 fn render_ssh_config(f: &mut Frame, app: &mut App, area: Rect) {
@@ -571,7 +571,7 @@ fn render_config_edit_popup(f: &mut Frame, app: &App) {
         };
         let current_value = fields[field_idx].1;
         f.set_cursor_position((
-            chunks[field_idx].x + current_value.len() as u16 + 2,
+            chunks[field_idx].x + current_value.len() as u16 + 3,
             chunks[field_idx].y + 1,
         ));
     }
